@@ -101,3 +101,7 @@ div.willy {
   float: right;
   width: 47%;
 }
+
+.card p {
+  font-size: 20px;
+}
