@@ -28,7 +28,7 @@ xgb_model <- boost_tree(
   loss_reduction = 0,
   learn_rate = 0.3,
   tree_depth = 2,
-  trees = 2
+  trees = 3
 ) %>%
   set_engine("xgboost", lambda = 0) %>%
   set_mode("regression")
