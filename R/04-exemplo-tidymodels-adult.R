@@ -1,6 +1,7 @@
 # Pacotes ------------------------------------------------------------------
 library(tidymodels)
 library(tidyverse)
+library(janitor)
 library(pROC)
 library(vip)
 library(skimr)
@@ -11,7 +12,10 @@ httr::GET("https://github.com/curso-r/main-intro-ml/raw/master/dados/adult.rds",
 adult <- read_rds("adult.rds")
 glimpse(adult) # German Risk
 
-adult %>% count(resposta)
+adult %>%
+  count(resposta) %>%
+  adorn_percentages("col") %>%
+  adorn_pct_formatting()
 
 # PASSO 1) BASE TREINO/TESTE -----------------------------------------------
 set.seed(1)
@@ -59,7 +63,7 @@ juice(prep(adult_receita)) %>% glimpse()
 # c) hiperparametros para tunar: penalty = tune()
 # d) hiperparametros para não tunar: mixture = 1 # LASSO
 # e) o motor: glmnet
-adult_lr_model <- boost_tree(
+adult_model <- boost_tree(
   mtry = tune(),
   trees = 200,
   min_n = 5,
@@ -73,7 +77,7 @@ adult_lr_model <- boost_tree(
 
 # workflow
 adult_wf <- workflow() %>%
-  add_model(adult_lr_model) %>%
+  add_model(adult_model) %>%
   add_recipe(adult_receita)
 
 
@@ -85,16 +89,17 @@ adult_wf <- workflow() %>%
 # d) collect_metrics() ou autoplot() para ver o resultado
 adult_resamples <- vfold_cv(adult_train, v = 5)
 
-adult_lr_tune_grid <- tune_grid(
+adult_tune_grid <- tune_grid(
   adult_wf,
   resamples = adult_resamples,
-  metrics = metric_set(roc_auc)
+  metrics = metric_set(roc_auc),
+  control = control_grid(verbose = TRUE, allow_par = FALSE)
 )
 
 # minha versão do autoplot()
-collect_metrics(adult_lr_tune_grid)
+collect_metrics(adult_tune_grid)
 
-collect_metrics(adult_lr_tune_grid) %>%
+collect_metrics(adult_tune_grid) %>%
   filter(penalty < 00.01) %>%
   ggplot(aes(x = penalty, y = mean)) +
   geom_point() +
@@ -106,25 +111,25 @@ collect_metrics(adult_lr_tune_grid) %>%
 # a) extrai melhor modelo com select_best()
 # b) finaliza o modelo inicial com finalize_model()
 # c) ajusta o modelo final com todos os dados de treino (bases de validação já era)
-adult_lr_best_params <- select_best(adult_lr_tune_grid, "roc_auc")
-adult_wf <- adult_wf %>% finalize_workflow(adult_lr_best_params)
+adult_best_params <- select_best(adult_tune_grid, "roc_auc")
+adult_wf <- adult_wf %>% finalize_workflow(adult_best_params)
 
-adult_lr_last_fit <- last_fit(
+adult_last_fit <- last_fit(
   adult_wf,
   adult_initial_split
 )
 
 # metricas
-collect_metrics(adult_lr_last_fit)
+collect_metrics(adult_last_fit)
 
 # roc
-adult_test_preds <- collect_predictions(adult_lr_last_fit)
+adult_test_preds <- collect_predictions(adult_last_fit)
 adult_roc_curve <- adult_test_preds %>% roc_curve(resposta, `.pred_<=50K`)
 autoplot(adult_roc_curve)
 
 # Variáveis importantes
-adult_lr_last_fit_model <- adult_lr_last_fit$.workflow[[1]]$fit$fit
-vip(adult_lr_last_fit_model)
+adult_last_fit_model <- adult_last_fit$.workflow[[1]]$fit$fit
+vip(adult_last_fit_model)
 
 
 # confusion matrix
@@ -205,7 +210,7 @@ ks_vec <- function(truth, estimate) {
   ks_test$statistic
 }
 
-comparacao_de_modelos <- collect_predictions(adult_lr_last_fit) %>%
+comparacao_de_modelos <- collect_predictions(adult_last_fit) %>%
   summarise(
     auc = roc_auc_vec(resposta, `.pred_<=50K`),
     acc = accuracy_vec(resposta, .pred_class),
@@ -232,7 +237,7 @@ library(patchwork)
 densidade / densidade_acumulada
 
 # KS "na raça" ---------
-ks_na_raca_df <- collect_predictions(adult_lr_last_fit) %>%
+ks_na_raca_df <- collect_predictions(adult_last_fit) %>%
   mutate(modelo = "Regressao Logistica",
          pred_prob = `.pred_<=50K`) %>%
   mutate(score_categ = cut_interval(pred_prob, 1000)) %>%
